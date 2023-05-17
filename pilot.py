@@ -7,6 +7,9 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.interpolate import interp1d
+from sklearn.cluster import DBSCAN, KMeans
+from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
 
 min_lat = 36
@@ -47,20 +50,20 @@ df.reset_index(inplace=True, drop=True)
 
 stations = df['IAGA'].tolist()
 
-station_dict = {}
-stations_df = pd.DataFrame()
-for station in stations:
-	temp_df = pd.read_feather(f'../data/supermag/{station}.feather')
-	temp_df = temp_df[['Date_UTC', 'dbht']]
-	temp_df.rename(columns={'dbht':station}, inplace=True)
-	# temp_df.dropna(subset=['dbht'], inplace=True)
-	temp_df.set_index('Date_UTC', drop=True, inplace=True)
-	stations_df = pd.concat([stations_df, temp_df], axis=1, ignore_index=False)
+# station_dict = {}
+# stations_df = pd.DataFrame()
+# for station in stations:
+# 	temp_df = pd.read_feather(f'../data/supermag/{station}.feather')
+# 	temp_df = temp_df[['Date_UTC', 'dbht']]
+# 	temp_df.rename(columns={'dbht':station}, inplace=True)
+# 	# temp_df.dropna(subset=['dbht'], inplace=True)
+# 	temp_df.set_index('Date_UTC', drop=True, inplace=True)
+# 	stations_df = pd.concat([stations_df, temp_df], axis=1, ignore_index=False)
 
-	del temp_df
-	gc.collect()
+# 	del temp_df
+# 	gc.collect()
 
-station_dict['stations_df'] = stations_df
+# station_dict['stations_df'] = stations_df
 
 
 def storm_extract(df, storm_list, lead, recovery):
@@ -151,9 +154,14 @@ for station in tqdm(stations):
 # with open('difference_dict.pkl', 'wb') as f:
 # 	pickle.dump(station_dict, f)
 
+print(stations[:5])
+print(stations[-5:])
 
 fig = plt.figure(figsize=(20,15))
-for station in stations:
+# ax2 = ax1.twinx()
+x, extreme_values, station_0, station_1 = [], [], [], []
+y_median, y_mean, y_topq, y_bottomq = [], [], [], []
+for station in stations[:-1]:
 
 	if os.path.exists(f'outputs/{station}_storm_only_differences.feather'):
 		df = pd.read_feather(f'outputs/{station}_storm_only_differences.feather')
@@ -168,11 +176,157 @@ for station in stations:
 			lon2 = station_locations.loc[station_locations['IAGA']==col]['GEOLON'].item()
 			lon2 = (lon2 + 180) % 360 - 180
 			distance = converting_from_degrees_to_km(lat1, lon1, lat2, lon2)
-			print(len(df[col]))
-			y = df[col].dropna().tolist()
-			print(len(y))
-			x = [distance] * len(y)
-			plt.scatter(x, y)
+			x.append(distance)
+			y = df[col].dropna()
+			y_median.append(y.median())
+			y_mean.append(y.mean())
+			y_topq.append(y.quantile(0.75))
+			y_bottomq.append(y.quantile(0.25))
+			extreme_values.append(y[y>y.quantile(0.9999)].tolist())
+			station_0.append(station)
+			station_1.append(col)
+
 		gc.collect()
 
-plt.savefig('difference_and_distance.png')
+# smoothed_median = interp1d(x, y_median, kind='cubic')
+# smoothed_mean = interp1d(x, y_mean, kind='cubic')
+# smoothed_topq = interp1d(x, y_topq, kind='cubic')
+# smoothed_bottomq = interp1d(x, y_bottomq, kind='cubic')
+
+# x_interp = np.linspace(min(x), max(x), num=100)
+# y_interp_median = smoothed_median(x_interp)
+# y_interp_mean = smoothed_mean(x_interp)
+# y_interp_topq = smoothed_topq(x_interp)
+# y_interp_bottomq = smoothed_bottomq(x_interp)
+
+# ax1.plot(x_interp, y_interp_median, '-', label='median')
+# ax1.plot(x_interp, y_interp_mean, '-', label='mean')
+# ax1.plot(x_interp, y_interp_topq, '-', label='75th perc.')
+# ax1.plot(x_interp, y_interp_bottomq, '-', label='25th perc.')
+ax1 = plt.subplot(221)
+ax2 = plt.subplot(222)
+ax3 = plt.subplot(223)
+ax4 = plt.subplot(224)
+
+ax1.scatter(x=x, y=y_median, label='median')
+ax2.scatter(x=x, y=y_mean, label='mean', color='orange')
+ax3.scatter(x=x, y=y_topq, label='75th perc.', color='green')
+ax4.scatter(x=x, y=y_bottomq, label='25th perc.', color='red')
+
+# for i in range(len(x)):
+# 	x_temp = [x[i]]*len(extreme_values[i])
+# 	ax2.scatter(x=x_temp, y=extreme_values[i], color='red', label='99.9th perc values')
+
+# Set y-axis label for significant points
+ax1.set_xlabel('Distance (km)')
+ax2.set_xlabel('Distance (km)')
+ax3.set_xlabel('Distance (km)')
+ax4.set_xlabel('Distance (km)')
+
+ax1.set_ylabel('Difference (dB/dt)')
+ax2.set_ylabel('Difference (dB/dt)')
+ax3.set_ylabel('Difference (dB/dt)')
+ax4.set_ylabel('Difference (dB/dt)')
+
+ax1.set_title('Median')
+ax2.set_title('Mean')
+ax3.set_title('75th Percentile')
+ax4.set_title('25th Percentile')
+
+# # Set y-axis label for extreme values
+# ax2.set_ylabel('Difference (dB/dt)', color='r')
+
+# Set the legend
+# ax1.legend(loc='upper left')
+# ax2.legend(loc='upper right')
+plt.savefig('difference_and_distance_boxplots.png')
+
+fig = plt.figure(figsize=(20,15))
+ax1 = plt.subplot(111)
+for i in range(len(x)):
+	x_temp = [x[i]]*len(extreme_values[i])
+	ax1.scatter(x=x_temp, y=extreme_values[i], color='purple')
+ax1.set_xlabel('Distance (km)')
+ax1.set_ylabel('Difference (dB/dt)')
+ax1.set_title('Extreme Values (>99.9th percentile)')
+plt.savefig('difference_and_distance_extreme_values.png')
+
+print('Starting DBSCAN median....')
+db_median_model = GaussianMixture(n_components=2, covariance_type='full')
+data_median = pd.DataFrame({'x':x,'y':y_median,'station_0':station_0,'station_1':station_1}).dropna()
+db_median_input = data_median[['x','y']].values
+db_median_model.fit(db_median_input)
+median_labels = db_median_model.predict(db_median_input)
+data_median['cluster'] = median_labels
+
+data_mean = pd.DataFrame({'x':x,'y':y_mean,'station_0':station_0,'station_1':station_1}).dropna()
+db_mean_input = data_mean[['x','y']].values
+print('Starting DBSCAN mean....')
+db_mean_model = GaussianMixture(n_components=2, covariance_type='full')
+db_mean_model.fit(db_mean_input)
+mean_labels = db_mean_model.predict(db_mean_input)
+data_mean['cluster'] = mean_labels
+
+data_topq = pd.DataFrame({'x':x,'y':y_topq,'station_0':station_0,'station_1':station_1}).dropna()
+db_topq_input = data_topq[['x','y']].values
+print('Starting DBSCAN topq....')
+db_topq_model = GaussianMixture(n_components=2, covariance_type='full')
+db_topq_model.fit(db_mean_input)
+topq_labels = db_topq_model.predict(db_topq_input)
+data_topq['cluster'] = topq_labels
+
+data_bottomq = pd.DataFrame({'x':x,'y':y_bottomq,'station_0':station_0,'station_1':station_1}).dropna()
+db_bottomq_input = data_bottomq[['x','y']].values
+print('Starting DBSCAN bottomq....')
+db_bottomq_model = GaussianMixture(n_components=2, covariance_type='full')
+db_bottomq_model.fit(db_bottomq_input)
+bottomq_labels = db_bottomq_model.predict(db_bottomq_input)
+data_bottomq['cluster'] = bottomq_labels
+
+
+fig = plt.figure(figsize=(20,15))
+ax1 = plt.subplot(221)
+ax2 = plt.subplot(222)
+ax3 = plt.subplot(223)
+ax4 = plt.subplot(224)
+
+ax1.scatter(x=data_median['x'], y=data_median['y'], label='median', c=median_labels)
+ax2.scatter(x=data_mean['x'], y=data_mean['y'], label='mean', c=mean_labels)
+ax3.scatter(x=data_topq['x'], y=data_topq['y'], label='75th perc.', c=topq_labels)
+ax4.scatter(x=data_bottomq['x'], y=data_bottomq['y'], label='25th perc.', c=bottomq_labels)
+
+# Set y-axis label for significant points
+ax1.set_xlabel('Distance (km)')
+ax2.set_xlabel('Distance (km)')
+ax3.set_xlabel('Distance (km)')
+ax4.set_xlabel('Distance (km)')
+
+ax1.set_ylabel('Difference (nT/min)')
+ax2.set_ylabel('Difference (nt/min)')
+ax3.set_ylabel('Difference (nT/min)')
+ax4.set_ylabel('Difference (nT/min)')
+
+ax1.set_title('Median')
+ax2.set_title('Mean')
+ax3.set_title('75th Percentile')
+ax4.set_title('25th Percentile')
+
+# Set the legend
+# ax1.legend(loc='upper left')
+# ax2.legend(loc='upper right')
+plt.savefig('difference_and_distance_clusters.png')
+
+data_median.reset_index(inplace=True, drop=True)
+data_mean.reset_index(inplace=True, drop=True)
+data_topq.reset_index(inplace=True, drop=True)
+data_bottomq.reset_index(inplace=True, drop=True)
+
+data_median.to_feather('outputs/data_median.feather')
+data_mean.to_feather('outputs/data_mean.feather')
+data_topq.to_feather('outputs/data_topq.feather')
+data_bottomq.to_feather('outputs/data_bottomq.feather')
+
+
+
+
+

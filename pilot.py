@@ -157,10 +157,11 @@ for station in tqdm(stations):
 print(stations[:5])
 print(stations[-5:])
 
-fig = plt.figure(figsize=(20,15))
+fig = plt.figure(figsize=(25,18))
 # ax2 = ax1.twinx()
 x, extreme_values, station_0, station_1 = [], [], [], []
-y_median, y_mean, y_topq, y_bottomq = [], [], [], []
+y_median, y_mean, y_topq, y_bottomq, y_std = [], [], [], [], []
+i=0
 for station in stations[:-1]:
 
 	if os.path.exists(f'outputs/{station}_storm_only_differences.feather'):
@@ -182,9 +183,17 @@ for station in stations[:-1]:
 			y_mean.append(y.mean())
 			y_topq.append(y.quantile(0.75))
 			y_bottomq.append(y.quantile(0.25))
+			y_std.append(y.std())
 			extreme_values.append(y[y>y.quantile(0.9999)].tolist())
 			station_0.append(station)
 			station_1.append(col)
+
+			if i==0:
+				plt.Figure()
+				plt.hist(y, bins=100, log=True)
+				plt.title(f'{station} and {col}')
+				plt.show()
+			i+=1
 
 		gc.collect()
 
@@ -203,15 +212,20 @@ for station in stations[:-1]:
 # ax1.plot(x_interp, y_interp_mean, '-', label='mean')
 # ax1.plot(x_interp, y_interp_topq, '-', label='75th perc.')
 # ax1.plot(x_interp, y_interp_bottomq, '-', label='25th perc.')
-ax1 = plt.subplot(221)
-ax2 = plt.subplot(222)
-ax3 = plt.subplot(223)
-ax4 = plt.subplot(224)
+fig = plt.figure(figsize=(25,18))
+
+ax1 = plt.subplot(321)
+ax2 = plt.subplot(322)
+ax3 = plt.subplot(323)
+ax4 = plt.subplot(324)
+ax5 = plt.subplot(325)
 
 ax1.scatter(x=x, y=y_median, label='median')
 ax2.scatter(x=x, y=y_mean, label='mean', color='orange')
 ax3.scatter(x=x, y=y_topq, label='75th perc.', color='green')
 ax4.scatter(x=x, y=y_bottomq, label='25th perc.', color='red')
+ax5.scatter(x=x, y=y_std, label='standard dev', color='purple')
+
 
 # for i in range(len(x)):
 # 	x_temp = [x[i]]*len(extreme_values[i])
@@ -222,16 +236,20 @@ ax1.set_xlabel('Distance (km)')
 ax2.set_xlabel('Distance (km)')
 ax3.set_xlabel('Distance (km)')
 ax4.set_xlabel('Distance (km)')
+ax5.set_xlabel('Distance (km)')
 
 ax1.set_ylabel('Difference (dB/dt)')
 ax2.set_ylabel('Difference (dB/dt)')
 ax3.set_ylabel('Difference (dB/dt)')
 ax4.set_ylabel('Difference (dB/dt)')
+ax5.set_ylabel('Difference (dB/dt)')
+
 
 ax1.set_title('Median')
 ax2.set_title('Mean')
 ax3.set_title('75th Percentile')
 ax4.set_title('25th Percentile')
+ax5.set_title('Standard Deviation')
 
 # # Set y-axis label for extreme values
 # ax2.set_ylabel('Difference (dB/dt)', color='r')
@@ -241,7 +259,7 @@ ax4.set_title('25th Percentile')
 # ax2.legend(loc='upper right')
 plt.savefig('difference_and_distance_boxplots.png')
 
-fig = plt.figure(figsize=(20,15))
+fig = plt.figure(figsize=(25,18))
 ax1 = plt.subplot(111)
 for i in range(len(x)):
 	x_temp = [x[i]]*len(extreme_values[i])
@@ -283,33 +301,46 @@ db_bottomq_model.fit(db_bottomq_input)
 bottomq_labels = db_bottomq_model.predict(db_bottomq_input)
 data_bottomq['cluster'] = bottomq_labels
 
+print('Starting DBSCAN std....')
+db_std_model = GaussianMixture(n_components=2, covariance_type='full')
+data_std = pd.DataFrame({'x':x,'y':y_std,'station_0':station_0,'station_1':station_1}).dropna()
+db_std_input = data_std[['x','y']].values
+db_std_model.fit(db_std_input)
+std_labels = db_std_model.predict(db_std_input)
+data_std['cluster'] = std_labels
 
-fig = plt.figure(figsize=(20,15))
-ax1 = plt.subplot(221)
-ax2 = plt.subplot(222)
-ax3 = plt.subplot(223)
-ax4 = plt.subplot(224)
+
+fig = plt.figure(figsize=(25,18))
+ax1 = plt.subplot(321)
+ax2 = plt.subplot(322)
+ax3 = plt.subplot(323)
+ax4 = plt.subplot(324)
+ax5 = plt.subplot(325)
 
 ax1.scatter(x=data_median['x'], y=data_median['y'], label='median', c=median_labels)
 ax2.scatter(x=data_mean['x'], y=data_mean['y'], label='mean', c=mean_labels)
 ax3.scatter(x=data_topq['x'], y=data_topq['y'], label='75th perc.', c=topq_labels)
 ax4.scatter(x=data_bottomq['x'], y=data_bottomq['y'], label='25th perc.', c=bottomq_labels)
+ax5.scatter(x=data_std['x'], y=data_std['y'], label='STD', c=std_labels)
 
 # Set y-axis label for significant points
 ax1.set_xlabel('Distance (km)')
 ax2.set_xlabel('Distance (km)')
 ax3.set_xlabel('Distance (km)')
 ax4.set_xlabel('Distance (km)')
+ax5.set_xlabel('Distance (km)')
 
 ax1.set_ylabel('Difference (nT/min)')
 ax2.set_ylabel('Difference (nt/min)')
 ax3.set_ylabel('Difference (nT/min)')
 ax4.set_ylabel('Difference (nT/min)')
+ax5.set_ylabel('Difference (nT/min)')
 
 ax1.set_title('Median')
 ax2.set_title('Mean')
 ax3.set_title('75th Percentile')
 ax4.set_title('25th Percentile')
+ax5.set_title('STD')
 
 # Set the legend
 # ax1.legend(loc='upper left')
@@ -320,11 +351,13 @@ data_median.reset_index(inplace=True, drop=True)
 data_mean.reset_index(inplace=True, drop=True)
 data_topq.reset_index(inplace=True, drop=True)
 data_bottomq.reset_index(inplace=True, drop=True)
+data_std.reset_index(inplace=True, drop=True)
 
 data_median.to_feather('outputs/data_median.feather')
 data_mean.to_feather('outputs/data_mean.feather')
 data_topq.to_feather('outputs/data_topq.feather')
 data_bottomq.to_feather('outputs/data_bottomq.feather')
+data_std.to_feather('outputs/data_std.feather')
 
 
 
